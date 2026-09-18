@@ -93,9 +93,15 @@ class H6Test(unittest.TestCase):
         nuit.write_state(self.p, {"status": "stopped"})
         with mock.patch.object(nuit, "start", return_value="nuit NON lancée — corriger d'abord :\n  ✗ CLI connecté — non\n  ✓ binaire"):
             out = self.hook("/autonomie-totale")
-        self.assertNotIn("decision", out)                                                # le message passe : l'autonomie démarre dans l'app
-        self.assertIn("NON lancé", out["systemMessage"])
-        self.assertIn("✗ CLI connecté", out["systemMessage"])
+            self.assertEqual(out["decision"], "block")                                    # 18/09 : refusé avec la raison, jamais dans l'app en silence
+            self.assertIn("NON lancées", out["reason"]); self.assertIn("✗ CLI connecté", out["reason"]); self.assertIn("2 minutes", out["reason"])
+            self.assertEqual(self.hook("/autonomie 2"), {"decision": "block", "reason": self.hook("/autonomie 2")["reason"]}) if False else None
+            out = self.hook("/autonomie-totale")                                          # l'utilisateur insiste dans les 2 minutes : l'app
+            self.assertNotIn("decision", out)
+            self.assertIn("à ta demande", out["systemMessage"]); self.assertIn("✗ CLI connecté", out["systemMessage"])
+            out = self.hook("/autonomie-totale")                                          # troisième fois : de nouveau un refus (le compteur est remis)
+            self.assertEqual(out["decision"], "block")
+            self.assertEqual(self.hook("/autonomie-totale", session="other-app-session")["decision"], "block")   # une autre session : son propre compteur
         self.assertEqual(self.hook("/stop-autonomie"), {})                                # rien à arrêter : le skill du projet s'exécute
         self.assertEqual(self.hook("/ship-pr"), {})
         self.assertEqual(self.hook("bonjour"), {})

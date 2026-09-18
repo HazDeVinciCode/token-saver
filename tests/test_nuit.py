@@ -217,18 +217,31 @@ class NuitTest(unittest.TestCase):
         try:
             tdir = Path(os.environ["CLAUDE_CONFIG_DIR"]) / "projects" / encode_project_dir(self.p.resolve())
             tdir.mkdir(parents=True)
-            (tdir / "other-session.jsonl").write_text("{}\n", encoding="utf-8")        # écrit à l'instant = session active
+            now_iso = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime()) + ".000Z"
+            def transcript(tool=None):
+                L = [json.dumps({"type": "user", "timestamp": now_iso, "message": {"role": "user", "content": "bonjour"}}),
+                     json.dumps({"type": "assistant", "timestamp": now_iso, "message": {"role": "assistant", "content": [{"type": "text", "text": "salut"}]}})]
+                if tool:
+                    L.append(json.dumps({"type": "assistant", "timestamp": now_iso, "message": {"role": "assistant", "content": [
+                        {"type": "tool_use", "id": "t1", "name": tool, "input": {"file_path": "a.py"}}]}}))
+                return "\n".join(L) + "\n"
+            (tdir / "chat-session.jsonl").write_text(transcript(), encoding="utf-8")   # discute seulement, à l'instant : ne compte pas
+            res = nuit.check(self.p, self.cfg, do_ping=False)
+            self.assertTrue(next(r for r in res if r[0].startswith("aucune autre session"))[1])
+            (tdir / "other-session.jsonl").write_text(transcript("Edit"), encoding="utf-8")   # modifie le projet à l'instant = active
             res = nuit.check(self.p, self.cfg, do_ping=False)
             item = next(r for r in res if r[0].startswith("aucune autre session"))
-            self.assertFalse(item[1]); self.assertIn("/stop-autonomie", item[2])
+            self.assertFalse(item[1]); self.assertIn("/stop-autonomie", item[2]); self.assertIn("il y a 0 min", item[2])
             old = time.time() - 3600
             os.utime(tdir / "other-session.jsonl", (old, old))                           # silence d'une heure = libre
             res = nuit.check(self.p, self.cfg, do_ping=False)
             self.assertTrue(next(r for r in res if r[0].startswith("aucune autre session"))[1])
-            (tdir / "launcher.jsonl").write_text("{}\n", encoding="utf-8")             # la session qui lance la nuit n'est pas « une autre »
+            (tdir / "launcher.jsonl").write_text(transcript("Bash"), encoding="utf-8")   # la session qui lance n'est pas « une autre »
             os.environ["CLAUDE_CODE_SESSION_ID"] = "launcher"
             res = nuit.check(self.p, self.cfg, do_ping=False)
             self.assertTrue(next(r for r in res if r[0].startswith("aucune autre session"))[1])
+            os.environ["CLAUDE_CODE_SESSION_ID"] = "someone-else"
+            self.assertFalse(next(r for r in nuit.check(self.p, self.cfg, do_ping=False) if r[0].startswith("aucune autre session"))[1])
         finally:
             os.environ.pop("CLAUDE_CONFIG_DIR", None)
             os.environ["CLAUDE_CODE_SESSION_ID"] = "app-session"

@@ -624,22 +624,72 @@ def new_session_id(project: Path) -> str:
     return sid
 
 
+WORK_TOOLS = ("Edit", "Write", "MultiEdit", "NotebookEdit", "Bash", "PowerShell", "Agent", "Task")   # ce qui peut modifier le projet
+IDLE_MIN = 10
+
+
+def _parse_ts(s) -> float | None:
+    if not s:
+        return None
+    try:
+        from datetime import datetime, timezone
+        dt = datetime.fromisoformat(str(s).replace("Z", "+00:00"))
+        return (dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)).timestamp()
+    except ValueError:
+        return None
+
+
+def _last_work_ts(f: Path, tail_bytes: int = 512_000) -> float | None:
+    """Horodatage du dernier appel d'outil qui modifie le projet, lu dans la fin du transcript ; None si aucun."""
+    try:
+        size = f.stat().st_size
+        with open(f, "rb") as h:
+            h.seek(max(0, size - tail_bytes))
+            tail = h.read().decode("utf-8", "replace")
+    except OSError:
+        return None
+    last = None
+    for line in tail.splitlines():
+        if '"tool_use"' not in line:
+            continue
+        try:
+            rec = json.loads(line)
+        except ValueError:
+            continue
+        if rec.get("type") != "assistant":
+            continue
+        for c in (rec.get("message") or {}).get("content") or []:
+            if isinstance(c, dict) and c.get("type") == "tool_use" and c.get("name") in WORK_TOOLS:
+                ts = _parse_ts(rec.get("timestamp"))
+                if ts and (last is None or ts > last):
+                    last = ts
+    return last
+
+
 def last_activity_minutes(project: Path) -> float | None:
-    """Minutes depuis la dernière écriture d'un transcript de session du projet, hors sessions du runner (None si aucun)."""
+    """Minutes depuis le dernier appel d'outil qui MODIFIE le projet (Edit, Write, Bash, agents…) dans une autre session que celles
+    du runner et celle qui lance. Une session qui ne fait que discuter ne compte pas (leçon du 18/09 : une session de conversation
+    a fait échouer le départ, et l'autonomie est partie dans l'app). None si aucune activité récente."""
     from .paths import transcript_dirs
     mine = own_sessions(project)
-    if os.environ.get("CLAUDE_CODE_SESSION_ID"):          # la session de l'app depuis laquelle on lance la nuit : elle rend la main
+    if os.environ.get("CLAUDE_CODE_SESSION_ID"):          # la session de l'app depuis laquelle on lance : elle rend la main
         mine.add(os.environ["CLAUDE_CODE_SESSION_ID"])
     newest = 0.0
+    now = time.time()
     for d in transcript_dirs(project):
-        for f in d.glob("*.jsonl"):
-            if f.stem in mine:
+        for f in list(d.glob("*.jsonl")) + list(d.glob("*/subagents/*.jsonl")):
+            sid = f.stem if f.parent == d else f.parents[1].name
+            if sid in mine:
                 continue
             try:
-                newest = max(newest, f.stat().st_mtime)
+                if now - f.stat().st_mtime > IDLE_MIN * 60:  # pas écrit depuis 10 min : aucun outil récent dedans
+                    continue
             except OSError:
-                pass
-    return (time.time() - newest) / 60 if newest else None
+                continue
+            ts = _last_work_ts(f)
+            if ts:
+                newest = max(newest, ts)
+    return (now - newest) / 60 if newest else None
 
 
 def check(project: Path, cfg_all: dict, do_ping: bool = True) -> list[tuple[str, bool, str]]:
@@ -647,9 +697,10 @@ def check(project: Path, cfg_all: dict, do_ping: bool = True) -> list[tuple[str,
     cfg = cfg_nuit(cfg_all)
     R: list[tuple[str, bool, str]] = []
     idle = last_activity_minutes(project)
-    R.append(("aucune autre session ne travaille sur le projet (silence ≥ 10 min)", idle is None or idle >= 10,
-              "aucun transcript" if idle is None else f"dernière activité il y a {idle:.0f} min"
-              + ("" if idle >= 10 else " → arrête d'abord le mode autonome de l'app (/stop-autonomie) : deux équipes sur le même code se gêneraient")))
+    R.append((f"aucune autre session ne travaille sur le projet (silence ≥ {IDLE_MIN} min)", idle is None or idle >= IDLE_MIN,
+              "aucune autre session n'a modifié le projet récemment" if idle is None else f"une autre session a modifié le projet il y a {idle:.0f} min"
+              + ("" if idle >= IDLE_MIN else f" → attends {IDLE_MIN} min, ou arrête cette session (/stop-autonomie si c'est une autonomie de l'app) : "
+                                             "deux équipes sur le même code se gêneraient")))
     claude_cmd = find_claude(cfg)
     R.append(("binaire claude trouvé", bool(claude_cmd), claude_cmd[0] if claude_cmd else "indique `nuit.claude_cmd` dans .token-saver/config.json"))
     text, label = cycle_prompt(project, cfg)

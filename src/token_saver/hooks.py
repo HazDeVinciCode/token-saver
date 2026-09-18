@@ -645,6 +645,26 @@ def h3_skill(ctx: Ctx) -> dict:
 _SLASH = _re.compile(r"^\s*/([A-Za-z0-9_.-]+)(?:\s+(.*))?$", _re.S)
 
 
+def _h6_retry(ctx: Ctx, name: str, window_s: int = 120) -> bool:
+    """Vrai si la même commande a déjà été refusée par H6 dans cette session il y a moins de window_s secondes (l'utilisateur insiste)."""
+    f = ctx.tsd / "state" / "h6-refus.json"
+    now = time.time()
+    try:
+        prev = json.loads(f.read_text(encoding="utf-8")) if f.is_file() else {}
+    except (OSError, ValueError):
+        prev = {}
+    hit = prev.get("name") == name and prev.get("session") == ctx.session and now - float(prev.get("ts") or 0) < window_s
+    try:
+        if hit:
+            f.unlink(missing_ok=True)
+        else:
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text(json.dumps({"name": name, "session": ctx.session, "ts": now}), encoding="utf-8")
+    except OSError:
+        pass
+    return hit
+
+
 def h6_prompt(ctx: Ctx) -> dict:
     if not ctx.cfg["features"].get("H6_autonomy_redirect") or not ctx.tsd:
         return {}
@@ -684,8 +704,19 @@ def h6_prompt(ctx: Ctx) -> dict:
                 + " ou ".join("/" + s for s in sorted(stops)) + ". Cette session ne doit plus travailler sur ce projet pendant ce temps : "
                 "ses messages seront refusés jusqu'à l'arrêt." + ("\n" + "\n".join(warn) if warn else ""))}
         why = " | ".join(l.strip() for l in msg.splitlines() if l.strip().startswith("✗")) or (msg.splitlines() or [""])[0]
-        ctx.log("H6", "fallback", note=why[:160])
-        return {"systemMessage": f"TOKEN SAVER — sessions neuves NON lancées, /{name} démarre dans cette session comme avant. Raison : {why[:400]}"}
+        # Les sessions neuves n'ont pas pu partir. Jusqu'au 18/09 le message passait et l'autonomie démarrait dans l'app « comme
+        # avant » : l'utilisateur ne l'a pas vu, la session a grossi toute la soirée. Désormais : refus avec la raison ; retaper la
+        # même commande dans les 2 minutes réessaie, et si ça échoue encore, l'utilisateur insiste : elle part dans l'app.
+        again = _h6_retry(ctx, name)
+        if again:
+            ctx.log("H6", "forced-app", note=why[:160])
+            return {"systemMessage": f"TOKEN SAVER — /{name} lancé dans cette session de l'app, à ta demande (deuxième essai). Les sessions neuves n'ont pas pu "
+                                     f"démarrer : {why[:300]}. Cette conversation va grossir : pense à /token-saver-next entre deux tâches."}
+        ctx.log("H6", "blocked", note=why[:160])
+        return {"decision": "block", "reason": (
+            f"TOKEN SAVER — sessions neuves NON lancées, /{name} n'a pas démarré. Raison : {why[:400]}\n"
+            f"Corrige, puis retape /{name}. Pour la lancer quand même dans cette session de l'app (déconseillé : elle grossira toute la durée), "
+            f"retape /{name} dans les 2 minutes.")}
     if running and not name.startswith("token-saver"):
         ctx.log("H6", "refused", note=(name or prompt[:40]))
         return {"decision": "block", "reason": (
