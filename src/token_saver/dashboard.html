@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TOKEN SAVER</title>
+<style>
+:root{--bg:#f7f6f2;--fg:#1a1918;--muted:#6b6964;--card:#fff;--line:#e5e2da;--acc:#c2410c;--acc2:#2563eb;--ok:#15803d;--warn:#b45309;--bad:#b91c1c;--m1:#d97757;--m2:#6b8fd6;--m3:#8bb174;--m4:#c9a227;--m5:#9b7bc4;--m6:#5e9ea0;--m7:#a8a29e}
+@media (prefers-color-scheme:dark){:root{--bg:#141413;--fg:#ece9e2;--muted:#9c9890;--card:#1f1e1c;--line:#33312d}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+header{padding:18px 24px;border-bottom:1px solid var(--line);display:flex;flex-wrap:wrap;gap:12px;align-items:baseline}
+h1{margin:0;font-size:20px;letter-spacing:.02em}h1 small{font-weight:400;color:var(--muted);font-size:13px;margin-left:8px}
+h2{font-size:15px;margin:28px 0 10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+main{padding:8px 24px 48px;max-width:1280px;margin:0 auto}
+.tabs{display:flex;gap:6px;margin-left:auto}.tabs button{background:var(--card);border:1px solid var(--line);color:var(--fg);padding:5px 12px;border-radius:999px;cursor:pointer}
+.tabs button.on{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}
+.tile{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+.tile .k{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);display:flex;justify-content:space-between;gap:6px}
+.tile .v{font-size:24px;font-weight:600;margin-top:4px;font-variant-numeric:tabular-nums}.tile .s{color:var(--muted);font-size:12px;margin-top:2px}
+.tag{font-size:9px;padding:1px 6px;border-radius:4px;border:1px solid var(--line);letter-spacing:.04em;white-space:nowrap}
+.tag.M{color:var(--ok);border-color:var(--ok)}.tag.E{color:var(--warn);border-color:var(--warn)}.tag.A{color:var(--acc2);border-color:var(--acc2)}.tag.O{color:var(--muted)}
+table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+th,td{padding:7px 10px;text-align:left;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums;vertical-align:top}th{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+td.n,th.n{text-align:right}tr:last-child td{border-bottom:0}tbody tr:hover{background:color-mix(in srgb,var(--fg) 4%,transparent)}
+.wrap{overflow-x:auto}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}@media(max-width:900px){.grid2{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px}
+svg{width:100%;height:auto;display:block}.muted{color:var(--muted)}.legend{display:flex;flex-wrap:wrap;gap:10px;font-size:12px;margin-top:8px}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+.note{font-size:12px;color:var(--muted);margin-top:6px}.bar{height:8px;border-radius:4px;background:var(--line);overflow:hidden}.bar b{display:block;height:100%;background:var(--acc)}
+.sess{cursor:pointer}.sess.on{outline:2px solid var(--acc2)}
+</style>
+</head>
+<body>
+<header><h1>TOKEN SAVER <small id="sub"></small></h1><div class="tabs" id="tabs"></div></header>
+<main id="main"></main>
+<script>
+const D = /*__DATA__*/null;
+const fmt = n => { n = +n || 0; const a = Math.abs(n); return a >= 1e9 ? (n/1e9).toFixed(2)+'B' : a >= 1e6 ? (n/1e6).toFixed(1)+'M' : a >= 1e3 ? (n/1e3).toFixed(0)+'K' : String(Math.round(n)); };
+const pct = x => (100*(+x||0)).toFixed(0)+'%';
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const COLORS = ['var(--m1)','var(--m2)','var(--m3)','var(--m4)','var(--m5)','var(--m6)','var(--m7)','#d4a5a5','#a5c4d4'];
+const tile = (k, v, s, tag) => `<div class="tile"><div class="k"><span>${k}</span>${tag?`<span class="tag ${tag[0]}">${tag}</span>`:''}</div><div class="v">${v}</div>${s?`<div class="s">${s}</div>`:''}</div>`;
+let period = '7d', selSession = 0;
+
+function bars(series, key, key2, labelKey) {
+  const W = 900, H = 200, P = 28, n = series.length; if (!n) return '<p class="muted">aucune donnée</p>';
+  const max = Math.max(...series.map(d => d[key] || 0), 1), bw = (W - 2*P) / n;
+  let s = `<svg viewBox="0 0 ${W} ${H+30}" role="img">`;
+  series.forEach((d, i) => { const h = (d[key]||0)/max*H, h2 = (d[key2]||0)/max*H, x = P + i*bw;
+    s += `<rect x="${x+1}" y="${P+H-h}" width="${Math.max(1,bw-2)}" height="${h}" fill="var(--m2)"><title>${d[labelKey]} · ${fmt(d[key])} (principal ${fmt(d[key2])})</title></rect>`;
+    s += `<rect x="${x+1}" y="${P+H-h2}" width="${Math.max(1,bw-2)}" height="${h2}" fill="var(--m1)"/>`;
+    if (i % Math.ceil(n/12) === 0) s += `<text x="${x}" y="${P+H+16}" font-size="10" fill="var(--muted)">${d[labelKey].slice(5)}</text>`; });
+  s += `<text x="${P}" y="${P-8}" font-size="10" fill="var(--muted)">max ${fmt(max)} / jour</text></svg>`;
+  return s;
+}
+function donut(shares) {
+  const entries = Object.entries(shares).slice(0, 9); const R = 70, C = 90; let a0 = -Math.PI/2, s = `<svg viewBox="0 0 180 180" style="max-width:220px">`;
+  entries.forEach(([k, v], i) => { const a1 = a0 + v*2*Math.PI, x0 = C+R*Math.cos(a0), y0 = C+R*Math.sin(a0), x1 = C+R*Math.cos(a1), y1 = C+R*Math.sin(a1), big = v > .5 ? 1 : 0;
+    s += `<path d="M${C},${C} L${x0},${y0} A${R},${R} 0 ${big} 1 ${x1},${y1} Z" fill="${COLORS[i%COLORS.length]}"><title>${k} ${pct(v)}</title></path>`; a0 = a1; });
+  s += `<circle cx="${C}" cy="${C}" r="40" fill="var(--card)"/></svg>`;
+  return s;
+}
+function line(traj, compacts) {
+  const W = 900, H = 160, P = 24, n = traj.length; if (n < 2) return '<p class="muted">trop court</p>';
+  const max = Math.max(...traj, 1), pts = traj.map((v, i) => `${P + i*(W-2*P)/(n-1)},${P + H - v/max*H}`).join(' ');
+  let s = `<svg viewBox="0 0 ${W} ${H+2*P}"><polyline points="${pts}" fill="none" stroke="var(--acc2)" stroke-width="2"/>`;
+  [200000, 150000].forEach(t => { if (t < max) { const y = P + H - t/max*H; s += `<line x1="${P}" x2="${W-P}" y1="${y}" y2="${y}" stroke="var(--warn)" stroke-dasharray="4 4"/><text x="${W-P}" y="${y-3}" font-size="10" text-anchor="end" fill="var(--warn)">${fmt(t)}</text>`; } });
+  (compacts||[]).forEach(c => { const x = P + c*(W-2*P)/(n-1); s += `<line x1="${x}" x2="${x}" y1="${P}" y2="${P+H}" stroke="var(--bad)" stroke-width="1.5"><title>compaction</title></line>`; });
+  s += `<text x="${P}" y="${P-8}" font-size="10" fill="var(--muted)">contexte par appel · max ${fmt(max)} · lignes = seuils 200K/150K · rouge = compaction</text></svg>`;
+  return s;
+}
+
+function renderProject() {
+  const S = D.periods[period], t = S.totals.all, m = S.totals.main, sa = S.totals.subagent, c = S.context, w = S.weighted, cold = S.cold, rd = S.reads, ev = S.events, ss = S.sessions, tu = S.turns;
+  document.getElementById('sub').textContent = `${D.project} · généré ${D.generated} · ${D.installed ? 'installé' : 'lecture seule'} · v${D.version}`;
+  const active = Object.entries(D.features).filter(([k,v]) => v).map(([k]) => k);
+  let h = `<h2>Vue principale — ${ {today:"aujourd'hui", '7d':'7 jours', '30d':'30 jours', all:'tout'}[period] }</h2><div class="tiles">`;
+  h += tile('Tokens relus (contexte)', fmt(t.ctx), `${t.calls.toLocaleString('fr')} appels · cache ${pct(t.hit)}`, 'MESURÉ');
+  h += tile('Cache write', fmt(t.cache_write), `1h ${fmt(t.cw_1h)} · 5m ${fmt(t.cw_5m)}`, 'MESURÉ');
+  h += tile('Output', fmt(t.output), `thinking ${pct(t.output ? t.thinking/t.output : 0)}`, 'MESURÉ');
+  h += tile('Pondéré prix API', fmt(w.total), w.verified ? 'facteurs vérifiés' : 'facteurs modèle non vérifiés', 'ESTIMÉ');
+  const ts = S.ts || {};
+  h += tile('Évité par TOKEN SAVER', fmt(ts.avoided_tokens||0), `${ts.avoided_events||0} relectures évitées · ≈ ${fmt(ts.estimated_token_calls||0)} token-relectures <span class="tag E">ESTIMÉ</span>`, 'ÉVITÉ-MESURÉ');
+  h += tile('Overhead TS', fmt(ts.injected_tokens||0)+' tok', `${ts.hook_events||0} hooks · p50 ${ts.latency_p50||0} ms · p95 ${ts.latency_p95||0} ms · 0 processus`, 'OVERHEAD');
+  h += tile('Gain net', (ts.net_tokens||0) >= 0 ? '+'+fmt(ts.net_tokens||0) : '−'+fmt(-(ts.net_tokens||0)), 'évité − injecté (tokens)', 'MESURÉ');
+  h += `</div><div class="tiles" style="margin-top:10px">`;
+  h += tile('Contexte / appel', `${fmt(c.p50)} <span class="muted" style="font-size:13px">p50</span>`, `p90 ${fmt(c.p90)} · max ${fmt(c.max)} · ${pct(c.share_over_long)} des appels > 150K`, 'MESURÉ');
+  h += tile('Appels / tour', `${tu.p50} <span class="muted" style="font-size:13px">p50</span>`, `p90 ${tu.p90} · max ${tu.max} · ${tu.turns} tours`, 'MESURÉ');
+  h += tile('Reconstructions à froid', cold.events, `${fmt(cold.tokens)} = ${pct(cold.share_of_cache_writes)} des cache writes`, 'MESURÉ');
+  h += tile('Compactions', ev.compact, `${fmt(ev.compact_detail.pre_avg)} → ${fmt(ev.compact_detail.post_avg)} · ${ev.compact_detail.duration_avg_s}s`, 'MESURÉ');
+  h += tile('Limites de quota', ev.limit_hit, `erreurs API ${ev.api_error} · modèle changé ${ev.model_switch}`, 'MESURÉ');
+  h += tile('Relectures', `${rd.redundant} <span class="muted" style="font-size:13px">/ ${rd.total}</span>`, `${fmt(rd.redundant_tokens)} tokens · ${rd.cross_agent_files} fichiers lus par ≥2 agents`, 'MESURÉ');
+  h += tile('Sous-agents', fmt(sa.ctx), `${pct(t.ctx ? sa.ctx/t.ctx : 0)} · ${sa.calls} appels`, 'MESURÉ');
+  h += tile('Plafond 200K', '−'+pct(c.cap_counterfactual['200000']), `150K → −${pct(c.cap_counterfactual['150000'])} (borne haute)`, 'ESTIMÉ');
+  h += `</div>`;
+  h += `<h2>Par jour (90 jours) — tokens relus, principal en orange, sous-agents en bleu</h2><div class="card">${bars(D.daily, 'ctx', 'ctx_main', 'd')}</div>`;
+  const sh = S.attribution.shares;
+  h += `<h2>Où partent les tokens relus</h2><div class="grid2"><div class="card" style="display:flex;gap:16px;align-items:center">${donut(sh)}<div>${Object.entries(sh).slice(0,9).map(([k,v],i)=>`<div><i class="legend" style="display:inline-block;width:10px;height:10px;background:${COLORS[i%COLORS.length]};margin-right:6px"></i><b>${esc(k)}</b> ${pct(v)}</div>`).join('')}</div></div>`;
+  h += `<div class="card"><b>Pourquoi ?</b><div class="note">Attribution exacte par construction : chaque appel relit tout le contexte ; le delta entre deux appels est réparti entre les contenus injectés entre les deux.</div>${Object.entries(sh).slice(0,6).map(([k,v])=>`<div style="margin-top:8px"><b>${esc(k)}</b> ${pct(v)}<div class="bar"><b style="width:${(100*v).toFixed(1)}%"></b></div><div class="note">${esc(D.why[k]||'')}</div></div>`).join('')}</div></div>`;
+  if (D.doctor && D.doctor.findings) {
+    const lv = {HIGH:'var(--bad)', MEDIUM:'var(--warn)', LOW:'var(--acc2)', INFO:'var(--muted)'};
+    h += `<h2>Opportunités (doctor, 30 jours)</h2><div class="card">` + D.doctor.findings.map(f => `<div style="margin:8px 0 14px;padding-left:10px;border-left:3px solid ${lv[f.level]||'var(--line)'}"><b style="color:${lv[f.level]||'inherit'}">${f.level}</b> <b>${esc(f.id)} — ${esc(f.title)}</b><div class="note"><b>Pourquoi :</b> ${esc(f.why)}</div><div class="note"><b>Conseil :</b> ${esc(f.advice)}</div>${f.impact?`<div class="note"><b>Impact :</b> ${esc(f.impact)} <span class="tag ${(f.registry||'').startsWith('MESURÉ')?'M':'E'}">${esc(f.registry||'')}</span></div>`:''}<div class="note">confiance ${esc(f.confidence)} · difficulté ${esc(f.difficulty)}</div></div>`).join('') + `</div>`;
+  }
+  h += `<h2>Sessions (cliquer pour la trajectoire)</h2><div class="wrap"><table><thead><tr><th>Session</th><th>Début → fin</th><th class="n">Tours</th><th class="n">Appels</th><th class="n">Σ contexte</th><th class="n">Max ctx</th><th class="n">Compact.</th><th class="n">Limites</th><th class="n">Agents</th></tr></thead><tbody>`;
+  D.sessions.forEach((s, i) => { h += `<tr class="sess ${i===selSession?'on':''}" data-i="${i}"><td><b>${esc(s.id)}</b> ${esc(s.title)}</td><td class="muted">${esc((s.t0||'').slice(0,16).replace('T',' '))} → ${esc((s.t1||'').slice(5,16).replace('T',' '))}</td><td class="n">${s.turns}</td><td class="n">${s.calls}</td><td class="n">${fmt(s.ctx)}</td><td class="n">${fmt(s.max)}</td><td class="n">${s.events.compact}</td><td class="n">${s.events.limit_hit}</td><td class="n">${s.agents} (${fmt(s.agents_ctx)})</td></tr>`; });
+  h += `</tbody></table></div><div class="card" style="margin-top:10px" id="traj"></div>`;
+  h += `<h2>Fichiers les plus coûteux en lecture</h2><div class="wrap"><table><thead><tr><th>Fichier</th><th class="n">Lectures</th><th class="n">Relectures identiques</th><th class="n">Tokens injectés</th></tr></thead><tbody>`;
+  rd.top.forEach(r => { h += `<tr><td>${esc(r.file_path)}</td><td class="n">${r.n}</td><td class="n">${r.red}</td><td class="n">${fmt(r.tok)}</td></tr>`; });
+  h += `</tbody></table></div>`;
+  h += `<h2>Agents</h2><div class="wrap"><table><thead><tr><th>Type</th><th class="n">Instances</th><th class="n">Appels</th><th class="n">Σ contexte</th><th class="n">Output</th><th>Modèles</th></tr></thead><tbody>`;
+  S.agents.forEach(a => { h += `<tr><td>${esc(a.type)}</td><td class="n">${a.agents}</td><td class="n">${a.calls}</td><td class="n">${fmt(a.ctx)}</td><td class="n">${fmt(a.o)}</td><td class="muted">${esc((a.models||'').replaceAll('claude-',''))}</td></tr>`; });
+  h += `</tbody></table></div>`;
+  h += `<h2>Outils</h2><div class="wrap"><table><thead><tr><th>Outil</th><th class="n">Appels</th><th class="n">Chars résultats</th><th class="n">Chars arguments</th><th class="n">Erreurs</th></tr></thead><tbody>`;
+  S.tools.forEach(r => { h += `<tr><td>${esc(r.name)}</td><td class="n">${r.n}</td><td class="n">${fmt(r.rc)}</td><td class="n">${fmt(r.ic)}</td><td class="n">${r.err||0}</td></tr>`; });
+  h += `</tbody></table></div>`;
+  h += `<h2>Overhead TOKEN SAVER</h2><div class="card">Processus résidents : 0 · hooks actifs : ${active.length ? active.join(', ') : 'aucun'} · calcul des métriques : ${S.computed_in_s}s · <span class="muted">les registres MESURÉ viennent des transcripts Claude Code ; ESTIMÉ = contre-factuels (hypothèse indiquée) ; rien n'est additionné entre registres.</span></div>`;
+  document.getElementById('main').innerHTML = h;
+  document.querySelectorAll('tr.sess').forEach(tr => tr.onclick = () => { selSession = +tr.dataset.i; renderProject(); });
+  const s = D.sessions[selSession]; if (s) document.getElementById('traj').innerHTML = `<b>${esc(s.id)}</b> ${esc(s.title)} <span class="muted">· ${s.calls} appels · 1 point = ${s.step} appel(s)</span>${line(s.traj, s.compacts)}`;
+}
+function renderAll() {
+  document.getElementById('sub').textContent = `tous les projets · généré ${D.generated} · v${D.version}`;
+  document.getElementById('tabs').innerHTML = '';
+  let h = `<h2>Projets (tri par tokens relus, tout l'historique)</h2><div class="wrap"><table><thead><tr><th>Projet</th><th>Dernière activité</th><th class="n">Appels</th><th class="n">Σ contexte</th><th class="n">Cache write</th><th class="n">Output</th><th class="n">Pondéré <span class="tag E">ESTIMÉ</span></th><th class="n">p90 ctx</th><th class="n">Froid</th><th class="n">Compact.</th><th class="n">Limites</th><th class="n">7 j : Σ ctx</th><th class="n">7 j : p90</th></tr></thead><tbody>`;
+  D.projects.forEach(p => { h += `<tr><td>${esc(p.name)}</td><td class="muted">${esc((p.last||'').slice(0,16).replace('T',' '))}</td><td class="n">${p.all.calls}</td><td class="n">${fmt(p.all.ctx)}</td><td class="n">${fmt(p.all.cache_write)}</td><td class="n">${fmt(p.all.output)}</td><td class="n">${fmt(p.all.weighted)}</td><td class="n">${fmt(p.all.p90)}</td><td class="n">${fmt(p.all.cold)}</td><td class="n">${p.all.compacts}</td><td class="n">${p.all.limit_hits}</td><td class="n">${fmt(p.d7.ctx)}</td><td class="n">${fmt(p.d7.p90)}</td></tr>`; });
+  h += `</tbody></table></div><p class="note">Lecture directe des transcripts de ~/.claude/projects (worktrees regroupés). Aucune installation requise ; les projets instrumentés ont en plus leur dashboard détaillé.</p>`;
+  document.getElementById('main').innerHTML = h;
+}
+if (D.mode === 'all') renderAll(); else {
+  document.getElementById('tabs').innerHTML = ['today','7d','30d','all'].map(p => `<button class="${p===period?'on':''}" data-p="${p}">${{today:"aujourd'hui", '7d':'7 j', '30d':'30 j', all:'tout'}[p]}</button>`).join('');
+  document.querySelectorAll('#tabs button').forEach(b => b.onclick = () => { period = b.dataset.p; document.querySelectorAll('#tabs button').forEach(x => x.classList.toggle('on', x===b)); renderProject(); });
+  renderProject();
+}
+</script>
+</body>
+</html>

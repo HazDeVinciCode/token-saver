@@ -1,0 +1,6 @@
+.token-saver/
+__pycache__/
+*.pyc
+research/preview/
+.idea/
+research/

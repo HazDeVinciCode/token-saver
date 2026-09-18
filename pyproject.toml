@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "token-saver"
+version = "0.2.0"
+description = "TOKEN SAVER — mesure, réglage et garde-fous pour Claude Code, projet par projet (stdlib uniquement)"
+requires-python = ">=3.10"
+readme = "README.md"
+license = {text = "MIT"}
+dependencies = []
+
+[project.scripts]
+token-saver = "token_saver.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
